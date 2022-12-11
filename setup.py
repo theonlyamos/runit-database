@@ -1,7 +1,7 @@
 from importlib.metadata import entry_points
 from setuptools import setup, find_packages
 
-VERSION = '0.0.2'
+VERSION = '0.0.4'
 
 setup(
     name='runit-database',

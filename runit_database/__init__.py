@@ -1,1 +1,1 @@
-from .app import Document
+from .document import Document
