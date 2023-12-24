@@ -42,7 +42,7 @@ class Document(metaclass=DocumentType):
         Document.API_ENDPOINT = api_endpoint
         Document.API_KEY = api_key
         Document.PROJECT_ID = project_id
-        Document.REQUEST_API = api_endpoint + '/document/' + project_id + '/'
+        Document.REQUEST_API = api_endpoint + '/documents/' + project_id + '/'
         Document.HEADERS['Authorization'] = f"Bearer {api_key}"
     
     @classmethod
@@ -88,17 +88,32 @@ class Document(metaclass=DocumentType):
         @return Document results
         '''
         collection = collection if collection else cls.COLLECTION
-        document_api = Document.REQUEST_API + collection + '/'
-        data = {}
-        data['function'] = 'all'
-        data['columns'] = columns
+        document_api = Document.REQUEST_API + collection
+        data = {'columns': columns}
         
-        req = requests.post(document_api, json=data, headers=Document.HEADERS)
+        req = requests.get(document_api, params=data, headers=Document.HEADERS)
         return req.json()
 
     
     @classmethod
-    def find_one(cls, collection: str = '', filter: dict = {}, columns: list = [])-> dict:
+    def get(cls, _id: str, columns: list = [])-> dict:
+        '''
+        Return one document in collection based on filter
+        --Document.<collection_name>.find_one()
+        
+        @param filter Search filter
+        @param columns Selected columns in document
+        @return Document
+        '''
+        collection = cls.COLLECTION
+        document_api = Document.REQUEST_API + collection + '/' + _id
+        data = {'columns': columns}
+        
+        req = requests.get(document_api, params=data, headers=Document.HEADERS)
+        return req.json()
+    
+    @classmethod
+    def find_one(cls, collection: str = '', _filter: dict = {}, columns: list = [])-> dict:
         '''
         Return one document in collection based on filter
         --Document.<collection_name>.find_one()
@@ -108,17 +123,16 @@ class Document(metaclass=DocumentType):
         @return Document
         '''
         collection = collection if collection else cls.COLLECTION
-        document_api = Document.REQUEST_API + collection + '/'
+        document_api = Document.REQUEST_API + collection
         data = {}
-        data['function'] = 'find'
-        data['filter'] = filter
+        data['filter'] = _filter
         data['columns'] = columns
         
-        req = requests.post(document_api, json=data, headers=Document.HEADERS)
+        req = requests.get(document_api, params=data, headers=Document.HEADERS)
         return req.json()
 
     @classmethod
-    def find(cls, collection: str = '', filter: dict = {}, columns: list = [])-> list[dict]:
+    def find(cls, collection: str = '', _filter: dict = {}, columns: list = [])-> list[dict]:
         '''
         Return documents in collection based on filter
         --Document.<collection_name>.find()
@@ -130,11 +144,10 @@ class Document(metaclass=DocumentType):
         collection = collection if collection else cls.COLLECTION
         document_api = Document.REQUEST_API + collection + '/'
         data = {}
-        data['function'] = 'find'
-        data['filter'] = filter
+        data['filter'] = _filter
         data['columns'] = columns
         
-        req = requests.post(document_api, json=data, headers=Document.HEADERS)
+        req = requests.get(document_api, params=data, headers=Document.HEADERS)
         return req.json()
 
 
@@ -148,17 +161,14 @@ class Document(metaclass=DocumentType):
         @return insert_result
         '''
         collection = collection if collection else cls.COLLECTION
-        document_api = Document.REQUEST_API + collection + '/'
+        document_api = Document.REQUEST_API + collection
+        data = {'documents': document}
         
-        data = {}
-        data['function'] = 'insert'
-        data['document'] = document
-
         req = requests.post(document_api, json=data,  headers=Document.HEADERS)
         return req.json()
     
     @classmethod
-    def insert_many(cls, collection: str = '', document: list[dict] = []):
+    def insert_many(cls, collection: str = '', documents: list[dict] = []):
         '''
         Insert list of documents into collection
 
@@ -167,17 +177,15 @@ class Document(metaclass=DocumentType):
         @return insert_result
         '''
         collection = collection if collection else cls.COLLECTION
-        document_api = Document.REQUEST_API + collection + '/'
+        document_api = Document.REQUEST_API + collection
         
-        data = {}
-        data['function'] = 'insert'
-        data['document'] = document
+        data = {'documents': documents}
 
-        req = requests.post(document_api, json=data,  headers=Document.HEADERS)
+        req = requests.post(document_api, data=data,  headers=Document.HEADERS)
         return req.json()
 
     @classmethod
-    def update(cls, collection: str = '', filter: dict = {},  update: list[dict] = []):
+    def update(cls, collection: str = '', _filter: dict = {},  update: list[dict] = []):
         '''
         Update documents in collection based on filter
 
@@ -189,15 +197,14 @@ class Document(metaclass=DocumentType):
         collection = collection if collection else cls.COLLECTION
         document_api = Document.REQUEST_API + collection + '/'
         data = {}
-        data['function'] = 'update'
-        data['filter'] = filter
-        data['update'] = update
+        data['filter'] = _filter
+        data['document'] = update
 
-        req = requests.post(document_api, json=data, headers=Document.HEADERS)
+        req = requests.put(document_api, json=data, headers=Document.HEADERS)
         return req.json()
 
     @classmethod
-    def remove(cls, collection: str = '', filter: dict = {}):
+    def remove(cls, collection: str = '', _filter: dict = {}):
         '''
         Remove documents in collection based on filter
 
@@ -206,9 +213,9 @@ class Document(metaclass=DocumentType):
         @return delete_result
         '''
         collection = collection if collection else cls.COLLECTION
-        document_api = Document.REQUEST_API + collection + '/'
+        document_api = Document.REQUEST_API + collection
 
-        req = requests.post(document_api, json=data, headers=Document.HEADERS)
+        req = requests.delete(document_api, params=_filter, headers=Document.HEADERS)
         return req.json()
 
 
