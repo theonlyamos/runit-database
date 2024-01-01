@@ -1,10 +1,13 @@
 import os
 import json
-from typing import Any
+from threading import Thread
+from typing import Any, Callable, Optional
+import asyncio
 
 import requests
 from dotenv import load_dotenv
 from .collection import Collection
+from .core import start_subscription
 
 load_dotenv()
 
@@ -12,7 +15,8 @@ class DocumentType(type):
     API_ENDPOINT = os.getenv('RUNIT_API_ENDPOINT', '')
     API_KEY = os.getenv('RUNIT_API_KEY', '')
     PROJECT_ID = os.getenv('RUNIT_PROJECT_ID', '')
-    REQUEST_API = API_ENDPOINT + '/document/'
+    REQUEST_API = API_ENDPOINT + '/documents/'
+    WS_ENDPOINT = REQUEST_API + '/subscribe/'
     HEADERS = {}
     
     def __getattr__(cls, key):
@@ -46,6 +50,7 @@ class Document(metaclass=DocumentType):
         Document.API_KEY = api_key
         Document.PROJECT_ID = project_id
         Document.REQUEST_API = api_endpoint + '/documents/' + project_id + '/'
+        Document.WS_ENDPOINT = api_endpoint + '/documents/subscribe/'
         Document.HEADERS['Authorization'] = f"Bearer {api_key}"
     
     @classmethod
@@ -221,4 +226,37 @@ class Document(metaclass=DocumentType):
         req = requests.delete(document_api, params=_filter, headers=Document.HEADERS)
         return req.json()
 
+    @classmethod
+    def subscribe(cls, collection: str, event: str = 'all', document_id: Optional[str] = None, _filter: dict = {}, columns: list = [], callback: Optional[Callable] = None):
+        loop = asyncio.get_event_loop()
+        from threading import Thread
+
+        async def subscribe_async():
+            while True:
+                try:
+                    await start_subscription(
+                        cls.WS_ENDPOINT,
+                        event,
+                        cls.PROJECT_ID,
+                        collection,
+                        document_id,
+                        callback
+                    )
+                except asyncio.CancelledError:
+                    # Subscription was cancelled (e.g., during shutdown)
+                    break
+                except Exception as e:
+                    # Handle other exceptions (e.g., reconnect or log)
+                    # print(f"Error in subscription: {e}")
+                    await asyncio.sleep(5)  # Retry after a delay
+
+        # Function to run the async code in a separate thread
+        def run_async_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(subscribe_async())
+
+        t = Thread(target=run_async_in_thread)
+        t.daemon = True
+        t.start()
 
