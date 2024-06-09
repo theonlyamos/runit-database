@@ -1,7 +1,7 @@
 from importlib.metadata import entry_points
 from setuptools import setup, find_packages
 
-VERSION = '0.0.7'
+VERSION = '0.0.8'
 
 setup(
     name='runit-database',
@@ -12,7 +12,7 @@ setup(
     long_description='Access your runit project database',
     packages=find_packages(),
     include_package_data=True,
-    install_requires=['requests','python-dotenv'],
+    install_requires=['requests','python-dotenv', 'websockets'],
     keywords='python3 runit developer serverless architecture docker',
     project_urls={
         'Source': 'https://github.com/theonlyamos/runit/',
