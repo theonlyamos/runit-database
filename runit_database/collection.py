@@ -1,246 +1,154 @@
 import asyncio
 import os
-import json
-from typing import Any, Optional
+import logging
+from typing import Any, Dict, List, Optional, Callable
+from urllib.parse import urljoin
 
-import requests
 from dotenv import load_dotenv
 
-from runit_database.core import start_subscription
+from .client import HTTPClient, validate_identifier, validate_filter, validate_columns
+from .core import start_subscription
 
 load_dotenv()
 
-class Collection():
-    '''
-    Class for accessing database api
-    '''
-    RUNIT_API_ENDPOINT = os.getenv('RUNIT_API_ENDPOINT', '')
-    RUNIT_API_KEY = os.getenv('RUNIT_API_KEY', '')
-    RUNIT_PROJECT_ID = os.getenv('RUNIT_PROJECT_ID', '')
-    REQUEST_API = RUNIT_API_ENDPOINT + '/document/s'
-    WS_ENDPOINT = REQUEST_API + '/subscribe/'
-    HEADERS = {}
-    
-    def __init__(self, name):
-        self.name = name
+logger = logging.getLogger(__name__)
 
-    @staticmethod
-    def initialize(api_endpoint: str = os.getenv('RUNIT_API_ENDPOINT', ''), 
-                 api_key: str = os.getenv('RUNIT_API_KEY', ''), 
-                 project_id: str = os.getenv('RUNIT_PROJECT_ID', '')):
-        '''
-        Initiate project database
-        
-        @param api_endpoint API ENDPOINT for accessing runit database
-        @param api_key API ENDPOINT for accessing runit database
-        @param project_id Runit Project ID
-        
-        @return None
-        '''
-        Collection.API_ENDPOINT = api_endpoint
-        Collection.API_KEY = api_key
-        Collection.PROJECT_ID = project_id
-        Collection.REQUEST_API = api_endpoint + '/documents/' + project_id + '/'
-        Collection.WS_ENDPOINT = api_endpoint + '/documents/subscribe/'
-        Collection.HEADERS['Authorization'] = f"Bearer {api_key}"
+
+class Collection:
+    API_ENDPOINT: str = os.getenv('RUNIT_API_ENDPOINT', '')
+    API_KEY: str = os.getenv('RUNIT_API_KEY', '')
+    PROJECT_ID: str = os.getenv('RUNIT_PROJECT_ID', '')
+    REQUEST_API: str = ''
+    WS_ENDPOINT: str = ''
     
-    def count(self, filter: dict = {})-> int:
-        '''
-        Count all documents in collection
-        --Document.<collection_name>.count()
+    _client: Optional[HTTPClient] = None
+    
+    def __init__(self, name: str):
+        self.name = validate_identifier(name)
+        self._ensure_client()
+    
+    @classmethod
+    def _ensure_client(cls) -> HTTPClient:
+        if cls._client is None:
+            cls._client = HTTPClient()
+        return cls._client
+    
+    @classmethod
+    def initialize(cls, api_endpoint: str = '', api_key: str = '', project_id: str = ''):
+        cls.API_ENDPOINT = api_endpoint or os.getenv('RUNIT_API_ENDPOINT', '')
+        cls.API_KEY = api_key or os.getenv('RUNIT_API_KEY', '')
+        cls.PROJECT_ID = project_id or os.getenv('RUNIT_PROJECT_ID', '')
         
-        @param filter Search filter
-        @return int Count of documents based on filter
-        '''
+        if not cls.API_ENDPOINT:
+            raise ValueError("API endpoint is required")
+        if not cls.API_KEY:
+            raise ValueError("API key is required")
+        if not cls.PROJECT_ID:
+            raise ValueError("Project ID is required")
         
-        document_api = Collection.REQUEST_API + self.name +'/'
-        data = {}
-        data['function'] = 'count'
-        data['filter'] = filter
+        cls.REQUEST_API = urljoin(cls.API_ENDPOINT, f'/documents/{cls.PROJECT_ID}/')
+        cls.WS_ENDPOINT = urljoin(cls.API_ENDPOINT, '/documents/subscribe/')
         
-        req = requests.post(document_api, json=data, headers=Collection.HEADERS)
-        return req.json()
-        
-    def select(self, columns: list = [], filter: dict = {})-> dict:
-        '''
-        Find selected columns in collection based on filter
-        --Document.<collection_name>.select()
-        
-        @param filter Search filter
-        @return Document results
-        '''
-        document_api = Collection.REQUEST_API + self.name
+        cls._client = HTTPClient()
+        cls._client.set_headers({'Authorization': f'Bearer {cls.API_KEY}'})
+    
+    @property
+    def _api_base(self) -> str:
+        if not self.REQUEST_API:
+            self.initialize()
+        return self.REQUEST_API + self.name
+    
+    def count(self, filter: Optional[Dict] = None) -> Dict:
+        filter = validate_filter(filter or {})
+        data = {'function': 'count', 'filter': filter}
+        return self._client.post(self._api_base + '/', json=data)
+    
+    def select(self, columns: Optional[List[str]] = None, filter: Optional[Dict] = None) -> Dict:
+        columns = validate_columns(columns or [])
+        filter = validate_filter(filter or {})
         data = {'function': 'select', 'columns': columns, 'filter': filter}
+        return self._client.get(self._api_base, params=data)
+
+    def all(self, columns: Optional[List[str]] = None) -> List[Dict]:
+        columns = validate_columns(columns or [])
+        return self._client.get(self._api_base, params={'columns': columns})
+
+    def get(self, _id: str, columns: Optional[List[str]] = None) -> Dict:
+        if not _id:
+            raise ValueError("Document ID is required")
+        columns = validate_columns(columns or [])
+        return self._client.get(f"{self._api_base}/{_id}", params={'columns': columns})
+
+    def find_one(self, _filter: Optional[Dict] = None, columns: Optional[List[str]] = None) -> Dict:
+        _filter = validate_filter(_filter or {})
+        columns = validate_columns(columns or [])
+        return self._client.get(self._api_base, params={'filter': _filter, 'columns': columns})
+
+    def find(self, _filter: Optional[Dict] = None, columns: Optional[List[str]] = None) -> List[Dict]:
+        _filter = validate_filter(_filter or {})
+        columns = validate_columns(columns or [])
+        return self._client.get(self._api_base + '/', params={'filter': _filter, 'columns': columns})
+
+    def insert_one(self, document: Dict) -> Dict:
+        if not isinstance(document, dict):
+            raise ValueError("Document must be a dictionary")
+        return self._client.post(self._api_base, json={'documents': document})
+
+    def insert_many(self, documents: List[Dict]) -> Dict:
+        if not isinstance(documents, list):
+            raise ValueError("Documents must be a list")
+        if not documents:
+            raise ValueError("Documents list cannot be empty")
+        return self._client.post(self._api_base, json={'documents': documents})
+
+    def update(self, _filter: Optional[Dict] = None, update: Optional[Dict] = None) -> Dict:
+        _filter = validate_filter(_filter or {})
+        if not isinstance(update, dict):
+            raise ValueError("Update must be a dictionary")
+        data = {'filter': _filter, 'document': update}
+        return self._client.put(self._api_base + '/', json=data)
+
+    def remove(self, _filter: Optional[Dict] = None) -> Dict:
+        _filter = validate_filter(_filter or {})
+        return self._client.delete(self._api_base, params=_filter)
+
+    def subscribe(self, event: str = 'all', document_id: Optional[str] = None, 
+                  callback: Optional[Callable] = None):
+        if event not in ('all', 'insert', 'update', 'delete'):
+            raise ValueError("Event must be one of: all, insert, update, delete")
         
-        req = requests.get(document_api, params=data, headers=Collection.HEADERS)
-        return req.json()
-
-    def all(self, columns: list = [])-> list[dict]:
-        '''
-        Return all documents in collection
-        --Document.<collection_name>.all()
-        
-        @param columns Selected columns in documents
-        @return Document results
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name
-        data = {'columns': columns}
-        
-        req = requests.get(document_api, params=data, headers=Collection.HEADERS)
-        return req.json()
-
-    
-    def get(self, _id: str, columns: list = [])-> dict:
-        '''
-        Return one document in collection based on filter
-        --Document.<collection_name>.find_one()
-        
-        @param filter Search filter
-        @param columns Selected columns in document
-        @return Document
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name +'/' + _id
-        data = {'columns': columns}
-        
-        req = requests.get(document_api, params=data, headers=Collection.HEADERS)
-        return req.json()
-    
-
-    def find_one(self, _filter: dict = {}, columns: list = [])-> dict:
-        '''
-        Return one document in collection based on filter
-        --Document.<collection_name>.find_one()
-        
-        @param filter Search filter
-        @param columns Selected columns in document
-        @return Document
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name
-        data = {}
-        data['filter'] = _filter
-        data['columns'] = columns
-        
-        req = requests.get(document_api, params=data, headers=Collection.HEADERS)
-        return req.json()
-
-
-    def find(self, _filter: dict = {}, columns: list = [])-> list[dict]:
-        '''
-        Return documents in collection based on filter
-        --Document.<collection_name>.find()
-        
-        @param filter Search filter
-        @param columns Selected columns in documents
-        @return Document results
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name +'/'
-        data = {}
-        data['filter'] = _filter
-        data['columns'] = columns
-        
-        req = requests.get(document_api, params=data, headers=Collection.HEADERS)
-        return req.json()
-
-
-
-    def insert_one(self, document: dict = {}):
-        '''
-        Insert one document into collection
-
-        @param Name of collection
-        @param Data to be inserted
-        @return insert_result
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name
-        data = {'documents': document}
-        
-        req = requests.post(document_api, json=data,  headers=Collection.HEADERS)
-        return req.json()
-    
-
-    def insert_many(self, documents: list[dict] = []):
-        '''
-        Insert list of documents into collection
-
-        @param Name of collection
-        @param Data to be inserted
-        @return insert_result
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name
-        
-        data = {'documents': documents}
-
-        req = requests.post(document_api, data=data,  headers=Collection.HEADERS)
-        return req.json()
-
-
-    def update(self, _filter: dict = {},  update: list[dict] = []):
-        '''
-        Update documents in collection based on filter
-
-        @param collection Name of collection
-        @param filer Search filter
-        @param update Data to be updated
-        @return update_result
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name +'/'
-        data = {}
-        data['filter'] = _filter
-        data['document'] = update
-
-        req = requests.put(document_api, json=data, headers=Collection.HEADERS)
-        return req.json()
-
-
-    def remove(self, _filter: dict = {}):
-        '''
-        Remove documents in collection based on filter
-
-        @param collection Name of collection
-        @param filter Search filter
-        @return delete_result
-        '''
-        
-        document_api = Collection.REQUEST_API + self.name
-
-        req = requests.delete(document_api, params=_filter, headers=Collection.HEADERS)
-        return req.json()
-
-    def subscribe(self, event: str = 'all', document_id: Optional[str] = None, _filter: dict = {}, columns: list = []):
-        loop = asyncio.get_event_loop()
-        from threading import Thread
-
-        async def subscribe_async():
-            while True:
-                try:
-                    await start_subscription(
-                        self.WS_ENDPOINT,
-                        event,
-                        self.PROJECT_ID,
-                        self.name,
-                        document_id
-                    )
-                except asyncio.CancelledError:
-                    # Subscription was cancelled (e.g., during shutdown)
-                    break
-                except Exception as e:
-                    # Handle other exceptions (e.g., reconnect or log)
-                    print(f"Error in subscription: {e}")
-                    await asyncio.sleep(5)  # Retry after a delay
-
-        # Function to run the async code in a separate thread
-        def run_async_in_thread():
+        def run_subscription():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(subscribe_async())
-
-        t = Thread(target=run_async_in_thread)
-        t.daemon = True
-        t.start()
+            try:
+                loop.run_until_complete(self._subscribe_async(event, document_id, callback))
+            finally:
+                loop.close()
+        
+        import threading
+        thread = threading.Thread(target=run_subscription, daemon=True)
+        thread.start()
+    
+    async def _subscribe_async(self, event: str, document_id: Optional[str], 
+                                callback: Optional[Callable]):
+        while True:
+            try:
+                await start_subscription(
+                    self.WS_ENDPOINT,
+                    event,
+                    self.PROJECT_ID,
+                    self.name,
+                    document_id,
+                    callback
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Subscription error: {e}, reconnecting in 5s...")
+                await asyncio.sleep(5)
+    
+    @classmethod
+    def close(cls):
+        if cls._client:
+            cls._client.close()
+            cls._client = None
