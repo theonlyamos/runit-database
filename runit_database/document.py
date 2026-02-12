@@ -38,6 +38,11 @@ class Document(metaclass=DocumentType):
         Document.API_KEY = api_key or os.getenv('RUNIT_API_KEY', '')
         Document.PROJECT_ID = project_id or os.getenv('RUNIT_PROJECT_ID', '')
         
+        # Sync with metaclass so __getattr__ uses correct values
+        DocumentType.API_ENDPOINT = Document.API_ENDPOINT
+        DocumentType.API_KEY = Document.API_KEY
+        DocumentType.PROJECT_ID = Document.PROJECT_ID
+        
         Collection.initialize(Document.API_ENDPOINT, Document.API_KEY, Document.PROJECT_ID)
     
     @staticmethod
@@ -45,4 +50,10 @@ class Document(metaclass=DocumentType):
         Document.API_ENDPOINT = ''
         Document.API_KEY = ''
         Document.PROJECT_ID = ''
+        
+        # Sync reset with metaclass
+        DocumentType.API_ENDPOINT = ''
+        DocumentType.API_KEY = ''
+        DocumentType.PROJECT_ID = ''
+        
         Collection.reset()
