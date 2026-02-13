@@ -91,7 +91,7 @@ class Collection:
     def find(self, _filter: Optional[Dict] = None, columns: Optional[List[str]] = None) -> List[Dict]:
         _filter = validate_filter(_filter or {})
         columns = validate_columns(columns or [])
-        result = client.get(self._api_base + '/', params={'filter': _filter, 'columns': columns})
+        result = client.get(self._api_base + '/', params={'filter': str(_filter), 'columns': columns})
         return result if isinstance(result, list) else [result] if isinstance(result, dict) else []
 
     def insert_one(self, document: Dict) -> Dict:
