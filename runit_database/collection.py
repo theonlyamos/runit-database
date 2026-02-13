@@ -45,9 +45,9 @@ class Collection:
         if not cls.PROJECT_ID:
             raise ValueError("Project ID is required. Set RUNIT_PROJECT_ID env var or pass project_id.")
         
-        cls.REQUEST_API = urljoin(cls.API_ENDPOINT, f'/documents/{cls.PROJECT_ID}/')
-        cls.WS_ENDPOINT = urljoin(cls.API_ENDPOINT, '/documents/subscribe/')
-        
+        cls.REQUEST_API = cls.API_ENDPOINT + f'/documents/{cls.PROJECT_ID}/'
+        cls.WS_ENDPOINT = cls.API_ENDPOINT + '/documents/subscribe/'
+
         client.set_headers({'Authorization': f'Bearer {cls.API_KEY}'})
         
         cls._initialized = True
